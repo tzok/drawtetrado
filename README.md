@@ -2326,6 +2326,20 @@ Click to see the input JSON
 
 </details>
 
+# Tests
+
+The test suite uses only Python's standard library `unittest` module. After
+installing the package, run:
+
+```sh
+python -m unittest discover -s tests -v
+```
+
+The regression tests cover tetrad orientation (`cWH`/`cHW` pairing), the
+optimizer's rotation-only layout search, legacy inputs without `lw` base-pair
+annotations, and end-to-end SVG generation. CI runs them on pushes and pull
+requests to `main`.
+
 # Bibliography
 
 <div id="refs" class="references csl-bib-body">

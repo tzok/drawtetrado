@@ -357,8 +357,6 @@ class Quadruplex:
             nt4 = tetrad["nt4"]
             onz = tetrad["onz"]
     
-            print("BEFORE:", nt1, nt2, nt3, nt4)
-    
             cycle = [nt1, nt2, nt3, nt4]
     
 
@@ -372,12 +370,15 @@ class Quadruplex:
                 neighbors = link_map.get(last, ())
     
  
-                for nt in neighbors:
+                for nt in sorted(neighbors):
                     if nt in cycle and nt not in used:
                         order.append(nt)
                         used.add(nt)
                         found = True
                         break
+
+                if not found:
+                    break
 
             
             if len(order) != 4:
@@ -411,8 +412,6 @@ class Quadruplex:
 
         
     
-            print("AFTER:", order)
-
             nt1, nt2, nt3, nt4 = order
     
             self.nucl_quad[nt1] = Nucleotide(nucl[nt1], used_nucl, tetr_no, onz, 0)
@@ -488,12 +487,37 @@ class Quadruplex:
     def GetSameRotations(self):
         lst = [-1] * len(self.tetrads)
         for idx, tetrad in enumerate(self.tetrads):
+            tract_of = {}
+            for group, tetrad_tracts in enumerate(self.tracts):
+                for tract_index, names in enumerate(tetrad_tracts):
+                    for nucl_name in names:
+                        tract_of[nucl_name] = (group, tract_index)
+
+            groups = set()
             for name in tetrad:
-                for group, tetrad_tracts in enumerate(self.tracts):
-                    for names in tetrad_tracts:
-                        for nucl_name in names:
-                            if name == nucl_name:
-                                lst[idx] = group
+                if name in tract_of:
+                    groups.add(tract_of[name][0])
+
+            if len(groups) != 1:
+                continue
+
+            group = groups.pop()
+            indices = [tract_of[name][1] for name in tetrad if name in tract_of]
+
+            # Tetrads with the same tract direction can be aligned with each
+            # other. A polarity-inverted block (e.g. in two-block quadruplexes)
+            # has the opposite direction and must be aligned separately.
+            # Otherwise the optimizer would have to reflect the tetrad, which
+            # would flip its cWH/cHW pairing.
+            direction = 0
+            if len(indices) == 4:
+                diffs = [(indices[(i + 1) % 4] - indices[i]) % 4 for i in range(4)]
+                if all(diff == 1 for diff in diffs):
+                    direction = 0
+                elif all(diff == 3 for diff in diffs):
+                    direction = 1
+
+            lst[idx] = group * 2 + direction
         return lst
 
     def GetAlignments(self):

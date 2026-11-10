@@ -18,9 +18,10 @@ using Position = int32_t; // 0/1/2/3
 
 
 std::vector<std::vector<Position>> GetPermutations() {
+    // Only rotations are allowed. Reflections would reverse the cyclic
+    // order of a tetrad and therefore flip its cWH/cHW pairing.
     return {
-        {0, 1, 2, 3}, {3, 0, 1, 2}, {2, 3, 0, 1}, {1, 2, 3, 0},
-        {2, 1, 0, 3}, {3, 2, 1, 0}, {0, 3, 2, 1}, {1, 0, 3, 2}
+        {0, 1, 2, 3}, {3, 0, 1, 2}, {2, 3, 0, 1}, {1, 2, 3, 0}
         };
 }
 
