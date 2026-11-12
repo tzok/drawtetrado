@@ -29,6 +29,18 @@ class Side(Enum):
     LEFT = -1.0
     NONE = 0.0
 
+
+def ConnectionFlows(nucl_a, nucl_b):
+    """Return flows at the start and end of a backbone connection."""
+    flow_out = nucl_a.GetStrandFlowOut()
+    if flow_out is None:
+        flow_out = nucl_a.flow_out
+    flow_in = nucl_b.GetStrandFlowIn()
+    if flow_in is None:
+        flow_in = nucl_a.flow_in
+    return flow_out, flow_in
+
+
 class Point(tuple):
     def __new__(self, x = 0, y = 0):
         return tuple.__new__(Point, (x, y))
@@ -521,8 +533,7 @@ class SvgMaker:
         point_b = self.ShiftCoords(nucl_b.coords[nucl_b.position], self.base_shift)
 
         point_label = None
-        flow_out = nucl_a.flow_out
-        flow_in = nucl_a.flow_in
+        flow_out, flow_in = ConnectionFlows(nucl_a, nucl_b)
         if nucl_a.connection_type == ConnType.SIMPLE:
             point_label = self.DrawSimpleLine(point_a, point_b)
         elif nucl_a.connection_type == ConnType.SAME_LEVEL:

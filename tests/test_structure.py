@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from drawtetrado import structure
+from drawtetrado.svg_painter import ConnFlow, ConnectionFlows
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -180,6 +181,65 @@ class TractAlignmentTests(unittest.TestCase):
         self.assert_continuous_tracts("8taa.json")
 
 
+class StrandPolarityTests(unittest.TestCase):
+    def test_7ys7_polarities_are_parsed(self):
+        structure_obj = structure.Structure().fromFile(str(DATA / "7ys7.json"))
+        quadruplex = structure.Quadruplex(structure_obj, 0)
+
+        expected = {
+            "A.DG1": "plus",
+            "A.DG2": "plus",
+            "A.DG16": "plus",
+            "A.DG9": "minus",
+            "A.DG11": "minus",
+            "A.DG17": "plus",
+            "A.DG18": "minus",
+            "A.DG12": "minus",
+        }
+        for name, polarity in expected.items():
+            self.assertEqual(quadruplex.nucl_quad[name].strand_polarity, polarity)
+
+    def test_ambiguous_polarity_is_none(self):
+        structure_obj = structure.Structure().fromFile(str(DATA / "8taa.json"))
+        quadruplex = structure.Quadruplex(structure_obj, 0)
+
+        self.assertIsNone(quadruplex.nucl_quad["A.DG9"].strand_polarity)
+        self.assertIsNone(quadruplex.nucl_quad["A.DG9"].GetStrandFlowOut())
+        self.assertIsNone(quadruplex.nucl_quad["A.DG9"].GetStrandFlowIn())
+
+    def test_flows_follow_strand_polarity(self):
+        structure_obj = structure.Structure().fromFile(str(DATA / "7ys7.json"))
+        quadruplex = structure.Quadruplex(structure_obj, 0)
+
+        for nucl in quadruplex.nucl_quad.values():
+            if nucl.strand_polarity == "plus":
+                self.assertEqual(nucl.GetStrandFlowOut(), ConnFlow.UP)
+                self.assertEqual(nucl.GetStrandFlowIn(), ConnFlow.DOWN)
+            elif nucl.strand_polarity == "minus":
+                self.assertEqual(nucl.GetStrandFlowOut(), ConnFlow.DOWN)
+                self.assertEqual(nucl.GetStrandFlowIn(), ConnFlow.UP)
+
+    def test_connection_uses_target_strand_flow(self):
+        structure_obj = structure.Structure().fromFile(str(DATA / "7ys7.json"))
+        quadruplex = structure.Quadruplex(structure_obj, 0)
+
+        # plus -> plus: leave from the top, enter from the bottom
+        flow_out, flow_in = ConnectionFlows(
+            quadruplex.nucl_quad["A.DG16"],
+            quadruplex.nucl_quad["A.DG17"],
+        )
+        self.assertEqual(flow_out, ConnFlow.UP)
+        self.assertEqual(flow_in, ConnFlow.DOWN)
+
+        # minus -> minus: leave from the bottom, enter from the top
+        flow_out, flow_in = ConnectionFlows(
+            quadruplex.nucl_quad["A.DG9"],
+            quadruplex.nucl_quad["A.DG11"],
+        )
+        self.assertEqual(flow_out, ConnFlow.DOWN)
+        self.assertEqual(flow_in, ConnFlow.UP)
+
+
 class LegacyInputTests(unittest.TestCase):
     def test_legacy_input_without_lw_does_not_hang(self):
         structure_obj = structure.Structure().fromFile(str(ROOT / "examples" / "1myq.json"))
@@ -206,6 +266,21 @@ class DrawingTests(unittest.TestCase):
             svg = svg_path.read_text()
             self.assertIn("A.DG21", svg)
             self.assertIn("A.DG24", svg)
+
+    def test_draw_7ys7(self):
+        from drawtetrado.main import DrawFromFile
+        from drawtetrado.svg_painter import Config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = str(Path(tmp) / "7ys7")
+            DrawFromFile(str(DATA / "7ys7.json"), prefix, Config(1.0))
+
+            svg_path = Path(prefix + "_0.svg")
+            self.assertTrue(svg_path.exists())
+
+            svg = svg_path.read_text()
+            self.assertIn("A.DG17", svg)
+            self.assertIn("A.DG11", svg)
 
 
 if __name__ == "__main__":

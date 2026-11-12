@@ -99,6 +99,30 @@ class Nucleotide:
             sign = "-" if sign == "+" else "+"
         return sign
 
+    def GetStrandFlowOut(self):
+        """Flow leaving this nucleotide, based on ElTetrado strand polarity.
+
+        `plus` means the 5'->3' direction is the same as the reference
+        (upright) guanine. In the drawing that means the 3' end is on top.
+        """
+        if self.strand_polarity == "plus":
+            return ConnFlow.UP
+        if self.strand_polarity == "minus":
+            return ConnFlow.DOWN
+        return None
+
+    def GetStrandFlowIn(self):
+        """Flow entering this nucleotide, based on ElTetrado strand polarity.
+
+        `minus` is inverted, so its 5' end is on top and the backbone enters
+        from above.
+        """
+        if self.strand_polarity == "plus":
+            return ConnFlow.DOWN
+        if self.strand_polarity == "minus":
+            return ConnFlow.UP
+        return None
+
     def GetOnz(self):
         res = self.onz_full[0:1].lower() + "_"
         if self.GetOnzPlusMinus() == "-":
@@ -112,7 +136,7 @@ class Nucleotide:
             return "onz_default"
         return res
 
-    def __init__(self, data, used_nucl, tetr_no, tetr_onz, pos):
+    def __init__(self, data, used_nucl, tetr_no, tetr_onz, pos, strand_polarity = None):
         self.number = data["number"]
         self.short_name = data["shortName"]
         self.full_name = data["fullName"]
@@ -121,6 +145,7 @@ class Nucleotide:
         self.onz_full = tetr_onz
         self.onz = self.GetOnz()
         self.bond = data["glycosidicBond"]
+        self.strand_polarity = strand_polarity
         self.tetrade_no = tetr_no
         self.position = pos
         self.mirrored = False
@@ -434,10 +459,10 @@ class Quadruplex:
     
             nt1, nt2, nt3, nt4 = order
     
-            self.nucl_quad[nt1] = Nucleotide(nucl[nt1], used_nucl, tetr_no, onz, 0)
-            self.nucl_quad[nt2] = Nucleotide(nucl[nt2], used_nucl, tetr_no, onz, 1)
-            self.nucl_quad[nt3] = Nucleotide(nucl[nt3], used_nucl, tetr_no, onz, 2)
-            self.nucl_quad[nt4] = Nucleotide(nucl[nt4], used_nucl, tetr_no, onz, 3)
+            for position, name in enumerate((nt1, nt2, nt3, nt4)):
+                self.nucl_quad[name] = Nucleotide(
+                    nucl[name], used_nucl, tetr_no, onz, position,
+                    self.strand_polarity_of.get(name))
     
             self.tetrads.append(order)
             tetr_no += 1
@@ -472,6 +497,10 @@ class Quadruplex:
     def __init__(self, structure, quadruplex_id, tetrad_id = -1):
         self.nucl_quad = {}
         self.tetrads = []
+        self.strand_polarity_of = {}
+        if quadruplex_id < len(structure.strand_polarities):
+            for polarity_map in structure.strand_polarities[quadruplex_id]:
+                self.strand_polarity_of.update(polarity_map)
         self.PrepareNucleotides(structure, quadruplex_id, tetrad_id)
         self.chains = self.GetChainFirstLast()
         if tetrad_id >= 0:
@@ -790,6 +819,7 @@ class Structure:
         self.tetrads_order = []
         self.single_tetrads = []
         self.tracts = []
+        self.strand_polarities = []
         self.loops = []
 
 
@@ -854,6 +884,7 @@ class Structure:
             single_tetrads_local = []
             tetrad_unordered = {}
             tracts_all = []
+            strand_polarities_all = []
             loops_all = []
             for _, quadruplex in enumerate(helice["quadruplexes"]):
                 tetrad_unordered_local = {}
@@ -865,7 +896,15 @@ class Structure:
                     tracts_all.append(quadruplex["tracts"])
                 else:
                     tracts_all.append(list())
-                    
+
+                polarity_map = {}
+                if "strandPolarities" in quadruplex and "tracts" in quadruplex:
+                    for tract, polarities in zip(quadruplex["tracts"],
+                                                 quadruplex["strandPolarities"]):
+                        for name, polarity in zip(tract, polarities):
+                            polarity_map[name] = polarity
+                strand_polarities_all.append(polarity_map)
+
                 if "loops" in quadruplex:
                     loops_all.append(quadruplex["loops"])
                 else:
@@ -910,6 +949,7 @@ class Structure:
                 self.tetrads.append(tetrad_unordered)
 
             self.tracts.append(tracts_all)
+            self.strand_polarities.append(strand_polarities_all)
             self.loops.append(loops_all)
             self.single_tetrads.append(single_tetrads_local)
         
