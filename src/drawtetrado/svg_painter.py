@@ -292,8 +292,8 @@ class SvgMaker:
         tan_val = math.tan(math.radians(conf.angle))
         sin_val = math.sin(math.radians(conf.angle))
 
-        if (nucl.GetOnzPlusMinus() == "+" and (nucl.position == 0 or nucl.position == 2)) or \
-           (nucl.GetOnzPlusMinus() == "-" and (nucl.position == 1 or nucl.position == 3)):
+        if (nucl.GetGeometrySign() == "+" and (nucl.position == 0 or nucl.position == 2)) or \
+           (nucl.GetGeometrySign() == "-" and (nucl.position == 1 or nucl.position == 3)):
             nucl.center.x += font_size * (sin_val - 0.5)
 
             rotation = int(360 - conf.angle)

@@ -6,6 +6,13 @@ import os
 
 from drawtetrado.svg_painter import Point, ConnType, ConnFlow
 
+REFLECTIONS = {
+    (2, 1, 0, 3),
+    (3, 2, 1, 0),
+    (0, 3, 2, 1),
+    (1, 0, 3, 2),
+}
+
 class Nucleotide:
     def FindConnections(self, used):
         # Find to what it is connected.
@@ -47,7 +54,7 @@ class Nucleotide:
 
         shift.y -= self.tetrade_no * (sin_val * (conf.longer + conf.shorter + conf.spacing) + \
                                       conf.tetrade_spacing)
-        if self.GetOnzPlusMinus() == "-":
+        if self.GetGeometrySign() == "-":
             width_0 = conf.longer
             height_0 = sin_val * conf.shorter
             width_1 = conf.shorter
@@ -80,6 +87,18 @@ class Nucleotide:
             return "-"
         return "+"
 
+    def GetGeometrySign(self):
+        """Sign used to draw the nucleotide block.
+
+        A tetrad that was reflected to align its tract is drawn mirrored, so
+        its block geometry must use the opposite sign. The ONZ colour still
+        uses the original sign.
+        """
+        sign = self.GetOnzPlusMinus()
+        if self.mirrored:
+            sign = "-" if sign == "+" else "+"
+        return sign
+
     def GetOnz(self):
         res = self.onz_full[0:1].lower() + "_"
         if self.GetOnzPlusMinus() == "-":
@@ -104,6 +123,7 @@ class Nucleotide:
         self.bond = data["glycosidicBond"]
         self.tetrade_no = tetr_no
         self.position = pos
+        self.mirrored = False
         self.connected_to = self.FindConnections(used_nucl)
         self.connected_from = ""
         self.coords = []
@@ -484,50 +504,32 @@ class Quadruplex:
               lst[nucl.tetrade_no * 4 + nucl.position] = -1
         return lst
 
+    def GetTractOf(self):
+        """Map nucleotide name to (quadruplex group, tract index)."""
+        tract_of = {}
+        for group, tetrad_tracts in enumerate(self.tracts):
+            for tract_index, names in enumerate(tetrad_tracts):
+                for nucl_name in names:
+                    tract_of[nucl_name] = (group, tract_index)
+        return tract_of
+
     def GetSameRotations(self):
+        tract_of = self.GetTractOf()
         lst = [-1] * len(self.tetrads)
         for idx, tetrad in enumerate(self.tetrads):
-            tract_of = {}
-            for group, tetrad_tracts in enumerate(self.tracts):
-                for tract_index, names in enumerate(tetrad_tracts):
-                    for nucl_name in names:
-                        tract_of[nucl_name] = (group, tract_index)
-
-            groups = set()
-            for name in tetrad:
-                if name in tract_of:
-                    groups.add(tract_of[name][0])
-
-            if len(groups) != 1:
-                continue
-
-            group = groups.pop()
-            indices = [tract_of[name][1] for name in tetrad if name in tract_of]
-
-            # Tetrads with the same tract direction can be aligned with each
-            # other. A polarity-inverted block (e.g. in two-block quadruplexes)
-            # has the opposite direction and must be aligned separately.
-            # Otherwise the optimizer would have to reflect the tetrad, which
-            # would flip its cWH/cHW pairing.
-            direction = 0
-            if len(indices) == 4:
-                diffs = [(indices[(i + 1) % 4] - indices[i]) % 4 for i in range(4)]
-                if all(diff == 1 for diff in diffs):
-                    direction = 0
-                elif all(diff == 3 for diff in diffs):
-                    direction = 1
-
-            lst[idx] = group * 2 + direction
+            groups = {tract_of[name][0] for name in tetrad if name in tract_of}
+            if len(groups) == 1:
+                lst[idx] = groups.pop()
         return lst
 
     def GetAlignments(self):
+        tract_of = self.GetTractOf()
         lst = [-1] * len(self.nucl_quad)
         for name, nucl in self.nucl_quad.items():
-            for group_1, tetrad_tracts in enumerate(self.tracts):
-                for group_2, names in enumerate(tetrad_tracts):
-                    for nucl_name in names:
-                        if name == nucl_name:
-                            lst[nucl.tetrade_no * 4 + nucl.position] = group_1 * 4 + group_2
+            if name not in tract_of:
+                continue
+            group, tract_index = tract_of[name]
+            lst[nucl.tetrade_no * 4 + nucl.position] = group * 4 + tract_index
         return lst
 
     # Use C++ code to rotate tetrads for more readable output.
@@ -536,6 +538,15 @@ class Quadruplex:
         optimized = optimizer.solve(self.GetNucleotidesPositions(),
                                     self.GetSameRotations(),
                                     self.GetAlignments())
+
+        # A reflected tetrad must be drawn mirrored, otherwise its
+        # cWH/cHW pairing would be reversed.
+        for level in range(len(self.tetrads)):
+            permutation = tuple(int(optimized[level * 4 + index]) for index in range(4))
+            mirrored = permutation in REFLECTIONS
+            for nucl in self.nucl_quad.values():
+                if nucl.tetrade_no == level:
+                    nucl.mirrored = mirrored
 
         # Update position for nucleotide.
         for _, nucl in self.nucl_quad.items():

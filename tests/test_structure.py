@@ -9,12 +9,6 @@ from drawtetrado import structure
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(__file__).resolve().parent / "data"
-ROTATIONS = {
-    (0, 1, 2, 3),
-    (3, 0, 1, 2),
-    (2, 3, 0, 1),
-    (1, 2, 3, 0),
-}
 
 
 @contextmanager
@@ -36,6 +30,14 @@ def time_limit(seconds):
         signal.signal(signal.SIGALRM, previous)
 
 
+def complement(lw):
+    return "cHW" if lw == "cWH" else "cWH"
+
+
+def flip_sign(sign):
+    return "-" if sign == "+" else "+"
+
+
 def pair_lw(structure_obj, nt1, nt2):
     """Return the Leontis-Westhof label of nt1 -> nt2."""
     for pair in structure_obj.basePairs:
@@ -45,7 +47,7 @@ def pair_lw(structure_obj, nt1, nt2):
         if pair["nt1"] == nt1 and pair["nt2"] == nt2:
             return lw
         if pair["nt1"] == nt2 and pair["nt2"] == nt1:
-            return "cHW" if lw == "cWH" else "cWH"
+            return complement(lw)
     return None
 
 
@@ -56,6 +58,28 @@ def tetrad_onz(structure_obj, quadruplex_id, names):
         if names <= bases:
             return tetrad["onz"]
     raise AssertionError("no tetrad contains {}".format(sorted(names)))
+
+
+def position_pairing_type(quadruplex, structure_obj, tetrad):
+    """Visual cWX label of the tetrad edges in increasing position order."""
+    onz = tetrad_onz(structure_obj, 0, tetrad)
+    pairing = "cWH" if onz.endswith("+") else "cHW"
+    if quadruplex.nucl_quad[tetrad[0]].mirrored:
+        pairing = complement(pairing)
+    return pairing
+
+
+def visual_pair_lw(quadruplex, structure_obj, tetrad, nt1, nt2):
+    """Visual label of nt1 -> nt2 as drawn in the tetrad."""
+    index_1 = tetrad.index(nt1)
+    index_2 = tetrad.index(nt2)
+    pairing = position_pairing_type(quadruplex, structure_obj, tetrad)
+
+    if (index_2 - index_1) % 4 == 1:
+        return pairing
+    if (index_1 - index_2) % 4 == 1:
+        return complement(pairing)
+    raise AssertionError("{} and {} are not adjacent".format(nt1, nt2))
 
 
 class TetradOrientationTests(unittest.TestCase):
@@ -73,60 +97,87 @@ class TetradOrientationTests(unittest.TestCase):
                 nt2 = tetrad[(index + 1) % 4]
                 self.assertEqual(pair_lw(self.structure, nt1, nt2), expected)
 
-    def test_same_rotations_separate_polarity_blocks(self):
+    def test_same_rotations_share_alignment_group(self):
         quadruplex = structure.Quadruplex(self.structure, 0)
-        self.assertEqual(quadruplex.GetSameRotations(), [0, 0, 1, 1])
+        self.assertEqual(quadruplex.GetSameRotations(), [0, 0, 0, 0])
 
-    def test_optimizer_uses_rotations_only(self):
+    def test_reflected_tetrads_use_mirrored_geometry(self):
         quadruplex = structure.Quadruplex(self.structure, 0)
-        prepared = [list(tetrad) for tetrad in quadruplex.tetrads]
-
         quadruplex.Optimize()
 
-        for before, after in zip(prepared, quadruplex.tetrads):
-            rotations = {
-                tuple(before[index:] + before[:index]) for index in range(4)
-            }
-            self.assertIn(tuple(after), rotations, msg=str(after))
+        mirrored = {
+            tetrad[0]: quadruplex.nucl_quad[tetrad[0]].mirrored
+            for tetrad in quadruplex.tetrads
+        }
+        self.assertTrue(any(mirrored.values()))
 
-    def test_optimizer_never_searches_reflections(self):
-        import optimizer
-
-        quadruplex = structure.Quadruplex(self.structure, 0)
-        edges = quadruplex.GetNucleotidesPositions()
-        alignments = quadruplex.GetAlignments()
-        # Force all levels to share one alignment group. This is only
-        # satisfiable with reflections, so the rotation-only optimizer must
-        # fall back to free rotations.
-        rotations = [0] * len(quadruplex.tetrads)
-
-        optimized = optimizer.solve(edges, rotations, alignments)
-
-        for level in range(len(quadruplex.tetrads)):
-            positions = tuple(optimized[level * 4:(level + 1) * 4])
-            self.assertIn(positions, ROTATIONS)
+        for tetrad in quadruplex.tetrads:
+            for name in tetrad:
+                nucl = quadruplex.nucl_quad[name]
+                expected = nucl.GetOnzPlusMinus()
+                if nucl.mirrored:
+                    expected = flip_sign(expected)
+                self.assertEqual(nucl.GetGeometrySign(), expected)
 
     def test_optimizer_preserves_lw_pairing(self):
         quadruplex = structure.Quadruplex(self.structure, 0)
         quadruplex.Optimize()
 
         for tetrad in quadruplex.tetrads:
-            onz = tetrad_onz(self.structure, 0, tetrad)
-            expected = "cWH" if onz.endswith("+") else "cHW"
+            pairing = position_pairing_type(quadruplex, self.structure, tetrad)
             for index in range(4):
                 nt1 = tetrad[index]
                 nt2 = tetrad[(index + 1) % 4]
-                self.assertEqual(pair_lw(self.structure, nt1, nt2), expected)
+                self.assertEqual(pair_lw(self.structure, nt1, nt2), pairing)
 
         tetrad = next(
             tetrad
             for tetrad in quadruplex.tetrads
             if "A.DG21" in tetrad and "A.DG24" in tetrad
         )
-        index_21 = tetrad.index("A.DG21")
-        index_24 = tetrad.index("A.DG24")
-        self.assertEqual((index_24 - index_21) % 4, 1)
-        self.assertEqual(pair_lw(self.structure, "A.DG21", "A.DG24"), "cWH")
+        self.assertEqual(
+            visual_pair_lw(quadruplex, self.structure, tetrad, "A.DG21", "A.DG24"),
+            "cWH",
+        )
+
+
+class TractAlignmentTests(unittest.TestCase):
+    def assert_continuous_tracts(self, fixture):
+        structure_obj = structure.Structure().fromFile(str(DATA / fixture))
+        quadruplex = structure.Quadruplex(structure_obj, 0)
+        quadruplex.Optimize()
+        tract_of = quadruplex.GetTractOf()
+
+        for tract_index in range(4):
+            positions = {}
+            for name, (group, index) in tract_of.items():
+                if group == 0 and index == tract_index:
+                    positions[name] = quadruplex.nucl_quad[name].position
+
+            self.assertGreater(len(positions), 1)
+            self.assertEqual(
+                len(set(positions.values())),
+                1,
+                msg="tract {} is not one column: {}".format(tract_index, positions),
+            )
+
+        return structure_obj, quadruplex
+
+    def test_7ys7_tracts_are_columns(self):
+        structure_obj, quadruplex = self.assert_continuous_tracts("7ys7.json")
+
+        tract = structure_obj.tracts[0][0][0]
+        self.assertEqual(tract, ["A.DG2", "A.DG1", "A.DG16"])
+        column = quadruplex.nucl_quad[tract[0]].position
+        for name in tract:
+            self.assertEqual(quadruplex.nucl_quad[name].position, column)
+        self.assertEqual(
+            [quadruplex.nucl_quad[name].tetrade_no for name in tract],
+            [2, 1, 0],
+        )
+
+    def test_8taa_tracts_are_columns(self):
+        self.assert_continuous_tracts("8taa.json")
 
 
 class LegacyInputTests(unittest.TestCase):
