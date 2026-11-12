@@ -2336,9 +2336,10 @@ python -m unittest discover -s tests -v
 ```
 
 The regression tests cover tetrad orientation (`cWH`/`cHW` pairing), mirrored
-drawing of reflected tetrads, tract column alignment, legacy inputs without
-`lw` base-pair annotations, and end-to-end SVG generation. CI runs them on
-pushes and pull requests to `main`.
+drawing of reflected tetrads, tract column alignment, ElTetrado strand
+polarities and backbone entry sides, legacy inputs without `lw` base-pair
+annotations, and end-to-end SVG generation. CI runs them on pushes and pull
+requests to `main`.
 
 # Bibliography
 
